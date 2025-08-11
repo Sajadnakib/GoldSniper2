@@ -3,99 +3,280 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gold Sniper — Web</title>
+<title>Gold Sniper — Institutions Pack</title>
 <meta name="theme-color" content="#0b1020">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
 <style>
-:root{--bg:#050816;--card:#0e1428;--line:#1f2a44;--ink:#e5e7eb;--muted:#9aa6bb}
-*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#050816 0%,#0b1020 100%);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Ubuntu,sans-serif}
-.wrap{max-width:980px;margin:0 auto;padding:14px}
-h1{font-size:20px;margin:0 0 8px}
-.card{background:#121a34;border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:14px}
-.row{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap}
-.badge{background:#132044;border:1px solid #223056;padding:4px 10px;border-radius:999px;font-size:12px;color:#cfe6ff}
-canvas{width:100%;height:360px;background:#0b1020;border:1px solid var(--line);border-radius:12px}
+:root{--bg:#050816;--surface:#121a34;--line:#1f2a44;--ink:#e5e7eb;--muted:#9aa6bb;--ok:#10b981;--err:#ef4444;--warn:#f59e0b;--accent:#4f46e5}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#050816,#0b1020);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Ubuntu,sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:14px}
+h1{margin:8px 0;font-size:22px}
+.badge{background:#132044;border:1px solid #223056;color:#cfe6ff;border-radius:999px;padding:4px 10px;font-size:12px;margin-inline-start:8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.25);padding:14px}
+.toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+select,button{background:#0b1020;border:1px solid var(--line);color:#e5e7eb;border-radius:10px;padding:8px 12px;font-weight:700}
+button.primary{background:#0f766e;border:0}
 .pill{border:1px solid var(--line);background:#0c132a;color:#cbd5e1;padding:6px 10px;border-radius:999px;font-weight:600}
-.ok{color:#10b981}.err{color:#ef4444}.warn{color:#f59e0b}
+.ok{color:var(--ok)}.err{color:var(--err)}.warn{color:var(--warn)}
 small{color:var(--muted)}
-button{background:#0f766e;border:0;color:#fff;padding:8px 12px;border-radius:10px;font-weight:700;cursor:pointer}
+.grid{display:grid;gap:14px} @media(min-width:950px){.grid{grid-template-columns:2fr 1fr}}
+canvas{width:100%;height:460px;background:#0b1020;border:1px solid var(--line);border-radius:12px}
+.box{background:#0b1020;border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:10px}
+.opts{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+.opt{display:flex;gap:6px;align-items:center;background:#0c132a;border:1px solid var(--line);padding:6px 10px;border-radius:999px}
+.k{font-weight:700;color:#cfe6ff}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <div class="wrap">
-  <h1>Gold Sniper <span class="badge">Web • GitHub Pages</span></h1>
-  <div class="card">
-    <div class="row">
-      <div><b>XAUUSD (ذهب) — 5m</b><br><small id="status">تحميل البيانات…</small></div>
-      <div>
-        <button id="refresh">تحديث</button>
-        <span id="signal" class="pill">—</span>
+  <h1>Gold Sniper <span class="badge">Institutions Pack • Web</span></h1>
+
+  <div class="grid">
+    <section class="card">
+      <div class="toolbar">
+        <div>
+          <b id="title">XAUUSD (ذهب) — <span id="tfLbl">5m</span></b><br>
+          <small id="status">تحميل البيانات…</small>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="tf">
+            <option value="5" selected>5m</option>
+            <option value="15">15m</option>
+            <option value="60">1h</option>
+          </select>
+          <button id="refresh" class="primary">تحديث</button>
+          <span id="signal" class="pill">—</span>
+        </div>
       </div>
-    </div>
-    <canvas id="chart"></canvas>
+      <canvas id="chart"></canvas>
+
+      <div class="box">
+        <b>أدوات المؤسسات</b>
+        <div class="opts">
+          <label class="opt"><input type="checkbox" id="vw" checked><span class="k">VWAP</span></label>
+          <label class="opt"><input type="checkbox" id="fvg" checked><span class="k">FVG</span></label>
+          <label class="opt"><input type="checkbox" id="ob" checked><span class="k">Order Blocks</span></label>
+          <label class="opt"><input type="checkbox" id="liq" checked><span class="k">Liquidity EQH/EQL</span></label>
+          <label class="opt"><input type="checkbox" id="bos" checked><span class="k">BOS / CHoCH</span></label>
+          <label class="opt"><input type="checkbox" id="pd" checked><span class="k">Premium / Discount</span></label>
+          <label class="opt"><input type="checkbox" id="sess" checked><span class="k">جلسات لندن/نيويورك</span></label>
+        </div>
+      </div>
+    </section>
+
+    <aside class="card">
+      <b>لوحة الإشارة</b>
+      <div class="box"><small>الحرارة</small><div id="heat"><span class="warn">Neutral</span></div></div>
+      <div class="box"><small>الاتجاه</small><div id="trend">—</div></div>
+      <div class="box"><small>VWAP Bias</small><div id="bias">—</div></div>
+      <ul id="notes" style="line-height:1.8;margin:8px 0 0"></ul>
+    </aside>
   </div>
 </div>
 
 <script>
-async function loadCSV(){
-  const url="https://stooq.com/q/d/l/?s=xauusd&i=5";
+/* ------------ بيانات ------------- */
+async function loadCSV(symbol, interval){
+  const url = `https://stooq.com/q/d/l/?s=${symbol}&i=${interval}`;
   try{
-    const res=await fetch(url,{cache:"no-store"});
-    if(!res.ok) throw new Error("net");
-    const csv=await res.text();
-    const rows=csv.trim().split(/\n+/).slice(-200);
+    const res = await fetch(url,{cache:"no-store"});
+    if(!res.ok) throw 0;
+    const csv = await res.text();
+    const rows = csv.trim().split(/\n+/).slice(-400);
     const out=[];
     for(let i=1;i<rows.length;i++){
       const [date,time,open,high,low,close,volume]=rows[i].split(",");
       if(!open) continue;
-      out.push({t:new Date(date+'T'+(time||'00:00')+':00Z'), o:+open,h:+high,l:+low,c:+close});
+      out.push({t:new Date(date+'T'+(time||'00:00')+':00Z'),o:+open,h:+high,l:+low,c:+close,v:+(volume||1)});
     }
-    if(out.length<50) throw new Error("short");
+    if(out.length<60) throw 0;
     return out;
-  }catch(e){
-    // بيانات احتياطية حتى تشوف الشارت لو النت ضعيف
+  }catch{
+    // احتياطي
     const out=[]; let p=2400;
-    for(let i=0;i<200;i++){
-      const o=p, c=p+(Math.random()-0.5)*2;
-      const h=Math.max(o,c)+1, l=Math.min(o,c)-1;
-      out.push({t:new Date(Date.now()-(200-i)*300000), o,h,l,c});
+    for(let i=0;i<260;i++){
+      const o=p, c=p+(Math.random()-0.5)*2; const h=Math.max(o,c)+1.5, l=Math.min(o,c)-1.5;
+      out.push({t:new Date(Date.now()-(260-i)*60000),o,h,l,c,v:100});
       p=c;
     }
     return out;
   }
 }
-function vwap(b){let pv=0,v=0,a=[];for(const x of b){const tp=(x.h+x.l+x.c)/3; pv+=tp; v+=1; a.push(pv/v)} return a}
-function decide(b,vw){const n=b.length-1; return b[n].c>vw[n]?{t:"شراء",c:"ok"}:{t:"بيع",c:"err"}}
 
-let chart;
-async function render(){
-  const st=document.getElementById("status");
-  st.textContent="تحميل…";
-  const bars=await loadCSV();
-  st.textContent="آخر تحديث: "+new Date().toLocaleTimeString();
-  const vw=vwap(bars);
-  const ds=decide(bars,vw);
-  const sig=document.getElementById("signal");
-  sig.textContent=ds.t; sig.className="pill "+ds.c;
+/* ------------ حسابات ------------- */
+const vwap = b => {let pv=0,v=0,a=[];for(const x of b){const tp=(x.h+x.l+x.c)/3; const vv=(x.v||1); pv+=tp*vv; v+=vv; a.push(pv/v)} return a;}
+function fvg(b){const up=[],down=[];for(let i=2;i<b.length;i++){const a=b[i-2],c=b[i]; if(a.h<c.l) up.push({i:i-1,top:c.l,bot:a.h}); if(a.l>c.h) down.push({i:i-1,top:a.l,bot:c.h}); } return {up,down}}
+function orderBlocks(b,look=30,th=.55){const bull=[],bear=[];for(let i=3;i<b.length;i++){const w=b.slice(Math.max(0,i-look),i); const r=Math.max(...w.map(z=>z.h))-Math.min(...w.map(z=>z.l))||1; const body=Math.abs(b[i].c-b[i].o); if(body>th*r){ if(b[i].c>b[i].o) bull.push({i,level:Math.min(b[i].o,b[i].c)}); else bear.push({i,level:Math.max(b[i].o,b[i].c)}); }} return {bull,bear}}
+function sweeps(b,look=12,eps=0.0001){const eqh=[],eql=[],buys=[],sells=[];for(let i=look;i<b.length;i++){const w=b.slice(i-look,i); const H=Math.max(...w.map(z=>z.h)), L=Math.min(...w.map(z=>z.l)); const up=b[i].h>=H-eps && b[i].c<H; const dn=b[i].l<=L+eps && b[i].c>L; if(up) sells.push({i,level:H}); if(dn) buys.push({i,level:L}); // EQH/EQL
+  const lastH=w[w.length-1].h, prevH=w[w.length-2]?.h; if(Math.abs(H-lastH)/H<0.0005 && Math.abs(H-(prevH||H))/H<0.0008) eqh.push({i,level:H});
+  const lastL=w[w.length-1].l, prevL=w[w.length-2]?.l; if(Math.abs(L-lastL)/L<0.0005 && Math.abs(L-(prevL||L))/L<0.0008) eql.push({i,level:L}); }
+  return {eqh,eql,buys,sells}}
+function structure(b){ // BOS / CHoCH تقريبي
+  const swingH=[], swingL=[];
+  for(let i=2;i<b.length-2;i++){ if(b[i].h>b[i-1].h && b[i].h>b[i+1].h) swingH.push({i,level:b[i].h}); if(b[i].l<b[i-1].l && b[i].l<b[i+1].l) swingL.push({i,level:b[i].l}); }
+  let bos=[], choch=[];
+  for(let i=1;i<swingH.length;i++){ if(swingH[i].level>Math.max(...swingH.slice(0,i).map(x=>x.level))) bos.push({i:swingH[i].i,dir:'up'}); }
+  for(let i=1;i<swingL.length;i++){ if(swingL[i].level<Math.min(...swingL.slice(0,i).map(x=>x.level))) bos.push({i:swingL[i].i,dir:'down'}); }
+  // CHoCH: تغيّر آخر قمّة/قاع متتابع
+  if(swingH.length>1 && swingL.length>1){
+    const lastH=swingH[swingH.length-1], prevH=swingH[swingH.length-2];
+    const lastL=swingL[swingL.length-1], prevL=swingL[swingL.length-2];
+    if(lastH.i>lastL.i && prevH.level<lastH.level && prevL.level>lastL.level) choch.push({i:lastL.i,dir:'down'});
+    if(lastL.i>lastH.i && prevL.level>lastL.level && prevH.level<lastH.level) choch.push({i:lastH.i,dir:'up'});
+  }
+  return {swingH,swingL,bos,choch}
+}
+function decide(b,vw,fg,ob,sw){
+  const n=b.length-1, price=b[n].c, vi=vw[n]; let s=0, notes=[];
+  if(price>vi){s++; notes.push("السعر فوق VWAP (+)");} else {s--; notes.push("السعر تحت VWAP (-)");}
+  const recent=12;
+  const u=fg.up.filter(z=>z.i>n-recent).length, d=fg.down.filter(z=>z.i>n-recent).length;
+  if(u>d){s++; notes.push("FVG صاعد");} else if(d>u){s--; notes.push("FVG هابط");}
+  const nearB=ob.bull.some(z=>Math.abs(n-z.i)<=6), nearS=ob.bear.some(z=>Math.abs(n-z.i)<=6);
+  if(nearB){s++; notes.push("قرب OB شرائي");} if(nearS){s--; notes.push("قرب OB بيعي");}
+  const sb=sw.buys.some(z=>Math.abs(n-z.i)<=4), ss=sw.sells.some(z=>Math.abs(n-z.i)<=4);
+  if(sb){s++; notes.push("سيولة ملتقطة للأسفل (Buy)");} if(ss){s--; notes.push("سيولة ملتقطة للأعلى (Sell)");}
+  let sig="حياد", cls="warn", heat="Neutral", trend=(price>vi?"Bullish":"Bearish"), bias=(price>vi?"Long":"Short");
+  if(s>=2){sig="شراء قوي";cls="ok";heat="Strong"} else if(s<=-2){sig="بيع قوي";cls="err";heat="Strong"}
+  else if(s>0){sig="شراء";cls="ok";heat="Moderate"} else if(s<0){sig="بيع";cls="err";heat="Moderate"}
+  return {sig,cls,heat,trend,bias,notes}
+}
+
+/* ------------ رسم ------------- */
+let chart, state={showVWAP:true,showFVG:true,showOB:true,showLiq:true,showBOS:true,showPD:true,showSess:true};
+
+function pluginOverlays(bars, vw, fg, ob, sw, st){
+  return {
+    id:'overlays',
+    afterDraw(chart, args, opts){
+      const {ctx, chartArea:{left,right,top,bottom}, scales:{x,y}} = chart;
+      ctx.save();
+
+      // جلسات لندن/نيويورك
+      if(st.showSess){
+        ctx.fillStyle='rgba(79,70,229,.07)';
+        for(let i=0;i<bars.length;i++){
+          const dt=bars[i].t; const h=dt.getUTCHours();
+          // لندن 7-10 UTC تقريبا
+          if(h>=7 && h<10){
+            const x0=x.getPixelForValue(i), x1=x.getPixelForValue(i+1)||x0+2;
+            ctx.fillRect(x0,top,x1-x0,bottom-top);
+          }
+        }
+        ctx.fillStyle='rgba(16,185,129,.07)';
+        for(let i=0;i<bars.length;i++){
+          const dt=bars[i].t; const h=dt.getUTCHours();
+          // نيويورك 12-16 UTC تقريبا
+          if(h>=12 && h<16){
+            const x0=x.getPixelForValue(i), x1=x.getPixelForValue(i+1)||x0+2;
+            ctx.fillRect(x0,top,x1-x0,bottom-top);
+          }
+        }
+      }
+
+      // Premium / Discount
+      if(st.showPD){
+        const hi=Math.max(...bars.map(z=>z.h)), lo=Math.min(...bars.map(z=>z.l));
+        const mid=(hi+lo)/2; ctx.strokeStyle='#64748b'; ctx.setLineDash([6,6]);
+        ctx.beginPath(); ctx.moveTo(left, y.getPixelForValue(mid)); ctx.lineTo(right, y.getPixelForValue(mid)); ctx.stroke(); ctx.setLineDash([]);
+      }
+
+      // VWAP
+      if(st.showVWAP){
+        ctx.strokeStyle='#fbbf24'; ctx.lineWidth=2;
+        ctx.beginPath();
+        for(let i=0;i<vw.length;i++){const px=x.getPixelForValue(i), py=y.getPixelForValue(vw[i]); if(i==0) ctx.moveTo(px,py); else ctx.lineTo(px,py);}
+        ctx.stroke();
+      }
+
+      // FVG
+      if(st.showFVG){
+        ctx.fillStyle='rgba(59,130,246,.12)';
+        fg.up.forEach(g=>{const x0=x.getPixelForValue(g.i-0.5), x1=x.getPixelForValue(g.i+1.5); const y0=y.getPixelForValue(g.top), y1=y.getPixelForValue(g.bot); ctx.fillRect(x0, y1, x1-x0, y0-y1);});
+        ctx.fillStyle='rgba(244,63,94,.12)';
+        fg.down.forEach(g=>{const x0=x.getPixelForValue(g.i-0.5), x1=x.getPixelForValue(g.i+1.5); const y0=y.getPixelForValue(g.top), y1=y.getPixelForValue(g.bot); ctx.fillRect(x0, y1, x1-x0, y0-y1);});
+      }
+
+      // Order Blocks
+      if(st.showOB){
+        ctx.strokeStyle='rgba(16,185,129,.7)'; ctx.setLineDash([4,4]);
+        ob.bull.forEach(o=>{const yy=y.getPixelForValue(o.level); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke();});
+        ctx.strokeStyle='rgba(244,63,94,.7)';
+        ob.bear.forEach(o=>{const yy=y.getPixelForValue(o.level); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke();});
+        ctx.setLineDash([]);
+      }
+
+      // Liquidity: EQH/EQL + Sweeps
+      if(st.showLiq){
+        ctx.strokeStyle='#60a5fa';
+        sw.eqh.forEach(l=>{const yy=y.getPixelForValue(l.level); ctx.setLineDash([2,6]); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke(); ctx.setLineDash([]);});
+        ctx.strokeStyle='#34d399';
+        sw.eql.forEach(l=>{const yy=y.getPixelForValue(l.level); ctx.setLineDash([2,6]); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke(); ctx.setLineDash([]);});
+        // علامات سريعة للسويبس
+        ctx.fillStyle='#ef4444';
+        sw.sells.forEach(s=>{const px=x.getPixelForValue(s.i), py=y.getPixelForValue(s.level); ctx.beginPath(); ctx.arc(px,py,3,0,2*Math.PI); ctx.fill();});
+        ctx.fillStyle='#10b981';
+        sw.buys.forEach(s=>{const px=x.getPixelForValue(s.i), py=y.getPixelForValue(s.level); ctx.beginPath(); ctx.arc(px,py,3,0,2*Math.PI); ctx.fill();});
+      }
+
+      // BOS / CHoCH
+      if(st.showBOS){
+        ctx.fillStyle='rgba(250,204,21,.9)';
+        opts.struct.bos.forEach(b=>{const px=x.getPixelForValue(b.i), py= b.dir==='up'? top+14 : bottom-14; ctx.beginPath(); ctx.arc(px,py,4,0,2*Math.PI); ctx.fill();});
+        ctx.fillStyle='rgba(99,102,241,.9)';
+        opts.struct.choch.forEach(c=>{const px=x.getPixelForValue(c.i), py= c.dir==='up'? top+28 : bottom-28; ctx.beginPath(); ctx.arc(px,py,4,0,2*Math.PI); ctx.fill();});
+      }
+
+      ctx.restore();
+    }
+  }
+}
+
+let opts={struct:{bos:[],choch:[]}};
+async function render(interval=5){
+  document.getElementById('status').textContent='تحميل…';
+  const bars = await loadCSV('xauusd', interval);
+  document.getElementById('status').textContent='آخر تحديث: '+new Date().toLocaleTimeString();
+
+  const vw=vwap(bars), fg=fvg(bars), ob=orderBlocks(bars), sw=sweeps(bars), st=state;
+  opts.struct = structure(bars);
+  const out=decide(bars,vw,fg,ob,sw);
+
+  document.getElementById('signal').textContent=out.sig;
+  document.getElementById('signal').className='pill '+out.cls;
+  document.getElementById('heat').innerHTML=`<span class="${out.cls}">${out.heat}</span>`;
+  document.getElementById('trend').textContent=out.trend;
+  document.getElementById('bias').textContent=out.bias;
+  const ul=document.getElementById('notes'); ul.innerHTML=''; out.notes.forEach(n=>{const li=document.createElement('li'); li.textContent=n; ul.appendChild(li);});
 
   const labels=bars.map(b=> new Intl.DateTimeFormat('ar-IQ',{hour:'2-digit',minute:'2-digit'}).format(b.t));
   const close=bars.map(b=>b.c);
 
-  const ctx=document.getElementById("chart").getContext("2d");
+  const ctx=document.getElementById('chart').getContext('2d');
   if(chart) chart.destroy();
-  chart=new Chart(ctx,{
-    type:"line",
+  chart=new Chart(ctx,{type:'line',
     data:{labels,datasets:[
-      {label:"الإغلاق",data:close,borderWidth:2,pointRadius:0,tension:.25},
-      {label:"VWAP",data:vw,borderWidth:2,pointRadius:0,tension:.25}
+      {label:'الإغلاق',data:close,borderWidth:2,pointRadius:0,tension:.25}
     ]},
-    options:{responsive:true,plugins:{legend:{labels:{color:"#e5e7eb"}}},
-      scales:{x:{ticks:{color:"#94a3b8"},grid:{color:"#1f2a44"}},
-              y:{ticks:{color:"#94a3b8"},grid:{color:"#1f2a44"}}}}
+    options:{responsive:true,animation:false,plugins:{legend:{labels:{color:'#e5e7eb'}}},
+      scales:{x:{ticks:{color:'#94a3b8'},grid:{color:'#1f2a44'}},
+              y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2a44'}}}},
+    plugins:[ pluginOverlays(bars,vw,fg,ob,sw,st) ]
   });
 }
-document.getElementById("refresh").addEventListener("click", render);
-render();
+
+document.getElementById('refresh').addEventListener('click',()=>render(Number(document.getElementById('tf').value)));
+document.getElementById('tf').addEventListener('change',e=>{document.getElementById('tfLbl').textContent=e.target.value+'m'; render(Number(e.target.value));});
+
+// toggles
+['vw','fvg','ob','liq','bos','pd','sess'].forEach(id=>{
+  document.getElementById(id).addEventListener('change',e=>{state[
+    id==='vw'?'showVWAP': id==='fvg'?'showFVG': id==='ob'?'showOB': id==='liq'?'showLiq': id==='bos'?'showBOS': id==='pd'?'showPD':'showSess'
+  ] = e.target.checked; render(Number(document.getElementById('tf').value));});
+});
+
+render(5);
 </script>
 </body>
 </html>
