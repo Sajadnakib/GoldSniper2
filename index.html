@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gold Sniper — Institutions Pack</title>
+<title>Gold Sniper — Institutions Pack (Stable)</title>
 <meta name="theme-color" content="#0b1020">
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <style>
-:root{--bg:#050816;--surface:#121a34;--line:#1f2a44;--ink:#e5e7eb;--muted:#9aa6bb;--ok:#10b981;--err:#ef4444;--warn:#f59e0b;--accent:#4f46e5}
+:root{--bg:#050816;--surface:#121a34;--line:#1f2a44;--ink:#e5e7eb;--muted:#9aa6bb;--ok:#10b981;--err:#ef4444;--warn:#f59e0b}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#050816,#0b1020);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Ubuntu,sans-serif}
 .wrap{max-width:1200px;margin:0 auto;padding:14px}
 h1{margin:8px 0;font-size:22px}
@@ -25,12 +25,13 @@ canvas{width:100%;height:460px;background:#0b1020;border:1px solid var(--line);b
 .opts{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
 .opt{display:flex;gap:6px;align-items:center;background:#0c132a;border:1px solid var(--line);padding:6px 10px;border-radius:999px}
 .k{font-weight:700;color:#cfe6ff}
+.off{opacity:.7}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <div class="wrap">
-  <h1>Gold Sniper <span class="badge">Institutions Pack • Web</span></h1>
+  <h1>Gold Sniper <span class="badge">Institutions Pack • Stable</span></h1>
 
   <div class="grid">
     <section class="card">
@@ -67,6 +68,7 @@ canvas{width:100%;height:460px;background:#0b1020;border:1px solid var(--line);b
 
     <aside class="card">
       <b>لوحة الإشارة</b>
+      <div class="box"><small>الحالة</small><div id="mode" class="warn">Online</div></div>
       <div class="box"><small>الحرارة</small><div id="heat"><span class="warn">Neutral</span></div></div>
       <div class="box"><small>الاتجاه</small><div id="trend">—</div></div>
       <div class="box"><small>VWAP Bias</small><div id="bias">—</div></div>
@@ -76,7 +78,12 @@ canvas{width:100%;height:460px;background:#0b1020;border:1px solid var(--line);b
 </div>
 
 <script>
-/* ------------ بيانات ------------- */
+/* ------------------ إعدادات عامة ------------------ */
+let chart, lastSignal=null, lastClass='warn', isOffline=false;
+let state={showVWAP:true,showFVG:true,showOB:true,showLiq:true,showBOS:true,showPD:true,showSess:true};
+let lastUpdate=0;
+
+/* ------------------ جلب البيانات ------------------ */
 async function loadCSV(symbol, interval){
   const url = `https://stooq.com/q/d/l/?s=${symbol}&i=${interval}`;
   try{
@@ -91,20 +98,30 @@ async function loadCSV(symbol, interval){
       out.push({t:new Date(date+'T'+(time||'00:00')+':00Z'),o:+open,h:+high,l:+low,c:+close,v:+(volume||1)});
     }
     if(out.length<60) throw 0;
+    isOffline=false;
     return out;
   }catch{
-    // احتياطي
+    // احتياطي: لا نعتبره تغيير إشارة، فقط عرض بصري
     const out=[]; let p=2400;
     for(let i=0;i<260;i++){
       const o=p, c=p+(Math.random()-0.5)*2; const h=Math.max(o,c)+1.5, l=Math.min(o,c)-1.5;
       out.push({t:new Date(Date.now()-(260-i)*60000),o,h,l,c,v:100});
       p=c;
     }
+    isOffline=true;
     return out;
   }
 }
 
-/* ------------ حسابات ------------- */
+/* ------------------ مؤشرات ------------------ */
+function atr(b, n=14){
+  let a=0;
+  for(let i=1;i<b.length;i++){
+    const tr = Math.max(b[i].h-b[i].l, Math.abs(b[i].h-b[i-1].c), Math.abs(b[i].l-b[i-1].c));
+    a += (tr - a)/Math.min(i, n);
+  }
+  return a;
+}
 const vwap = b => {let pv=0,v=0,a=[];for(const x of b){const tp=(x.h+x.l+x.c)/3; const vv=(x.v||1); pv+=tp*vv; v+=vv; a.push(pv/v)} return a;}
 function fvg(b){const up=[],down=[];for(let i=2;i<b.length;i++){const a=b[i-2],c=b[i]; if(a.h<c.l) up.push({i:i-1,top:c.l,bot:a.h}); if(a.l>c.h) down.push({i:i-1,top:a.l,bot:c.h}); } return {up,down}}
 function orderBlocks(b,look=30,th=.55){const bull=[],bear=[];for(let i=3;i<b.length;i++){const w=b.slice(Math.max(0,i-look),i); const r=Math.max(...w.map(z=>z.h))-Math.min(...w.map(z=>z.l))||1; const body=Math.abs(b[i].c-b[i].o); if(body>th*r){ if(b[i].c>b[i].o) bull.push({i,level:Math.min(b[i].o,b[i].c)}); else bear.push({i,level:Math.max(b[i].o,b[i].c)}); }} return {bull,bear}}
@@ -112,13 +129,12 @@ function sweeps(b,look=12,eps=0.0001){const eqh=[],eql=[],buys=[],sells=[];for(l
   const lastH=w[w.length-1].h, prevH=w[w.length-2]?.h; if(Math.abs(H-lastH)/H<0.0005 && Math.abs(H-(prevH||H))/H<0.0008) eqh.push({i,level:H});
   const lastL=w[w.length-1].l, prevL=w[w.length-2]?.l; if(Math.abs(L-lastL)/L<0.0005 && Math.abs(L-(prevL||L))/L<0.0008) eql.push({i,level:L}); }
   return {eqh,eql,buys,sells}}
-function structure(b){ // BOS / CHoCH تقريبي
+function structure(b){
   const swingH=[], swingL=[];
   for(let i=2;i<b.length-2;i++){ if(b[i].h>b[i-1].h && b[i].h>b[i+1].h) swingH.push({i,level:b[i].h}); if(b[i].l<b[i-1].l && b[i].l<b[i+1].l) swingL.push({i,level:b[i].l}); }
   let bos=[], choch=[];
   for(let i=1;i<swingH.length;i++){ if(swingH[i].level>Math.max(...swingH.slice(0,i).map(x=>x.level))) bos.push({i:swingH[i].i,dir:'up'}); }
   for(let i=1;i<swingL.length;i++){ if(swingL[i].level<Math.min(...swingL.slice(0,i).map(x=>x.level))) bos.push({i:swingL[i].i,dir:'down'}); }
-  // CHoCH: تغيّر آخر قمّة/قاع متتابع
   if(swingH.length>1 && swingL.length>1){
     const lastH=swingH[swingH.length-1], prevH=swingH[swingH.length-2];
     const lastL=swingL[swingL.length-1], prevL=swingL[swingL.length-2];
@@ -127,78 +143,68 @@ function structure(b){ // BOS / CHoCH تقريبي
   }
   return {swingH,swingL,bos,choch}
 }
-function decide(b,vw,fg,ob,sw){
-  const n=b.length-1, price=b[n].c, vi=vw[n]; let s=0, notes=[];
-  if(price>vi){s++; notes.push("السعر فوق VWAP (+)");} else {s--; notes.push("السعر تحت VWAP (-)");}
+
+/* ------------------ قرار الإشارة (مع تثبيت) ------------------ */
+function decideStable(b,vw,fg,obx,sw){
+  const n=b.length-1, price=b[n].c, v=vw[n];
+  const A = atr(b);                         // تذبذب
+  const margin = Math.max(A*0.15, 0.3);     // هامش أمان: 15% ATR أو 0.3$
+  let s=0, notes=[];
+
+  // VWAP مع هامش
+  if(price > v + margin){ s+=1; notes.push("فوق VWAP (بهامش)"); }
+  else if(price < v - margin){ s-=1; notes.push("تحت VWAP (بهامش)"); }
+  else { notes.push("قريب من VWAP — محايد"); }
+
+  // بقية الأوزان
   const recent=12;
   const u=fg.up.filter(z=>z.i>n-recent).length, d=fg.down.filter(z=>z.i>n-recent).length;
-  if(u>d){s++; notes.push("FVG صاعد");} else if(d>u){s--; notes.push("FVG هابط");}
-  const nearB=ob.bull.some(z=>Math.abs(n-z.i)<=6), nearS=ob.bear.some(z=>Math.abs(n-z.i)<=6);
-  if(nearB){s++; notes.push("قرب OB شرائي");} if(nearS){s--; notes.push("قرب OB بيعي");}
+  if(u>d){s+=1; notes.push("FVG صاعد");} else if(d>u){s-=1; notes.push("FVG هابط");}
+  const nearB=obx.bull.some(z=>Math.abs(n-z.i)<=6), nearS=obx.bear.some(z=>Math.abs(n-z.i)<=6);
+  if(nearB){s+=1; notes.push("قرب OB شرائي");} if(nearS){s-=1; notes.push("قرب OB بيعي");}
   const sb=sw.buys.some(z=>Math.abs(n-z.i)<=4), ss=sw.sells.some(z=>Math.abs(n-z.i)<=4);
-  if(sb){s++; notes.push("سيولة ملتقطة للأسفل (Buy)");} if(ss){s--; notes.push("سيولة ملتقطة للأعلى (Sell)");}
-  let sig="حياد", cls="warn", heat="Neutral", trend=(price>vi?"Bullish":"Bearish"), bias=(price>vi?"Long":"Short");
-  if(s>=2){sig="شراء قوي";cls="ok";heat="Strong"} else if(s<=-2){sig="بيع قوي";cls="err";heat="Strong"}
-  else if(s>0){sig="شراء";cls="ok";heat="Moderate"} else if(s<0){sig="بيع";cls="err";heat="Moderate"}
-  return {sig,cls,heat,trend,bias,notes}
+  if(sb){s+=1; notes.push("Sweep للأسفل (Buy)");} if(ss){s-=1; notes.push("Sweep للأعلى (Sell)");}
+
+  // خريطة نهائية
+  let sig="حياد", cls="warn", heat="Neutral", trend=(price>v?"Bullish":"Bearish"), bias=(price>v?"Long":"Short");
+  if(s>=2){sig="شراء قوي"; cls="ok"; heat="Strong";}
+  else if(s<=-2){sig="بيع قوي"; cls="err"; heat="Strong";}
+  else if(s>0){sig="شراء"; cls="ok"; heat="Moderate";}
+  else if(s<0){sig="بيع"; cls="err"; heat="Moderate";}
+  return {sig,cls,heat,trend,bias,notes};
 }
 
-/* ------------ رسم ------------- */
-let chart, state={showVWAP:true,showFVG:true,showOB:true,showLiq:true,showBOS:true,showPD:true,showSess:true};
-
-function pluginOverlays(bars, vw, fg, ob, sw, st){
+/* ------------------ الرسم والطبقات ------------------ */
+function pluginOverlays(bars, vw, fg, ob, sw, st, struct){
   return {
     id:'overlays',
-    afterDraw(chart, args, opts){
+    afterDraw(chart){
       const {ctx, chartArea:{left,right,top,bottom}, scales:{x,y}} = chart;
       ctx.save();
-
-      // جلسات لندن/نيويورك
+      // جلسات
       if(st.showSess){
         ctx.fillStyle='rgba(79,70,229,.07)';
-        for(let i=0;i<bars.length;i++){
-          const dt=bars[i].t; const h=dt.getUTCHours();
-          // لندن 7-10 UTC تقريبا
-          if(h>=7 && h<10){
-            const x0=x.getPixelForValue(i), x1=x.getPixelForValue(i+1)||x0+2;
-            ctx.fillRect(x0,top,x1-x0,bottom-top);
-          }
-        }
+        for(let i=0;i<bars.length;i++){const h=bars[i].t.getUTCHours(); if(h>=7 && h<10){const x0=x.getPixelForValue(i), x1=x.getPixelForValue(i+1)||x0+2; ctx.fillRect(x0,top,x1-x0,bottom-top);}}
         ctx.fillStyle='rgba(16,185,129,.07)';
-        for(let i=0;i<bars.length;i++){
-          const dt=bars[i].t; const h=dt.getUTCHours();
-          // نيويورك 12-16 UTC تقريبا
-          if(h>=12 && h<16){
-            const x0=x.getPixelForValue(i), x1=x.getPixelForValue(i+1)||x0+2;
-            ctx.fillRect(x0,top,x1-x0,bottom-top);
-          }
-        }
+        for(let i=0;i<bars.length;i++){const h=bars[i].t.getUTCHours(); if(h>=12 && h<16){const x0=x.getPixelForValue(i), x1=x.getPixelForValue(i+1)||x0+2; ctx.fillRect(x0,top,x1-x0,bottom-top);}}
       }
-
-      // Premium / Discount
+      // PD
       if(st.showPD){
         const hi=Math.max(...bars.map(z=>z.h)), lo=Math.min(...bars.map(z=>z.l));
         const mid=(hi+lo)/2; ctx.strokeStyle='#64748b'; ctx.setLineDash([6,6]);
         ctx.beginPath(); ctx.moveTo(left, y.getPixelForValue(mid)); ctx.lineTo(right, y.getPixelForValue(mid)); ctx.stroke(); ctx.setLineDash([]);
       }
-
       // VWAP
       if(st.showVWAP){
         ctx.strokeStyle='#fbbf24'; ctx.lineWidth=2;
-        ctx.beginPath();
-        for(let i=0;i<vw.length;i++){const px=x.getPixelForValue(i), py=y.getPixelForValue(vw[i]); if(i==0) ctx.moveTo(px,py); else ctx.lineTo(px,py);}
-        ctx.stroke();
+        ctx.beginPath(); for(let i=0;i<vw.length;i++){const px=x.getPixelForValue(i), py=y.getPixelForValue(vw[i]); if(i==0) ctx.moveTo(px,py); else ctx.lineTo(px,py);} ctx.stroke();
       }
-
       // FVG
       if(st.showFVG){
-        ctx.fillStyle='rgba(59,130,246,.12)';
-        fg.up.forEach(g=>{const x0=x.getPixelForValue(g.i-0.5), x1=x.getPixelForValue(g.i+1.5); const y0=y.getPixelForValue(g.top), y1=y.getPixelForValue(g.bot); ctx.fillRect(x0, y1, x1-x0, y0-y1);});
-        ctx.fillStyle='rgba(244,63,94,.12)';
-        fg.down.forEach(g=>{const x0=x.getPixelForValue(g.i-0.5), x1=x.getPixelForValue(g.i+1.5); const y0=y.getPixelForValue(g.top), y1=y.getPixelForValue(g.bot); ctx.fillRect(x0, y1, x1-x0, y0-y1);});
+        ctx.fillStyle='rgba(59,130,246,.12)'; fg.up.forEach(g=>{const x0=x.getPixelForValue(g.i-0.5), x1=x.getPixelForValue(g.i+1.5); const y0=y.getPixelForValue(g.top), y1=y.getPixelForValue(g.bot); ctx.fillRect(x0, y1, x1-x0, y0-y1);});
+        ctx.fillStyle='rgba(244,63,94,.12)';  fg.down.forEach(g=>{const x0=x.getPixelForValue(g.i-0.5), x1=x.getPixelForValue(g.i+1.5); const y0=y.getPixelForValue(g.top), y1=y.getPixelForValue(g.bot); ctx.fillRect(x0, y1, x1-x0, y0-y1);});
       }
-
-      // Order Blocks
+      // OB
       if(st.showOB){
         ctx.strokeStyle='rgba(16,185,129,.7)'; ctx.setLineDash([4,4]);
         ob.bull.forEach(o=>{const yy=y.getPixelForValue(o.level); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke();});
@@ -206,76 +212,94 @@ function pluginOverlays(bars, vw, fg, ob, sw, st){
         ob.bear.forEach(o=>{const yy=y.getPixelForValue(o.level); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke();});
         ctx.setLineDash([]);
       }
-
-      // Liquidity: EQH/EQL + Sweeps
+      // Liquidity
       if(st.showLiq){
-        ctx.strokeStyle='#60a5fa';
-        sw.eqh.forEach(l=>{const yy=y.getPixelForValue(l.level); ctx.setLineDash([2,6]); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke(); ctx.setLineDash([]);});
-        ctx.strokeStyle='#34d399';
-        sw.eql.forEach(l=>{const yy=y.getPixelForValue(l.level); ctx.setLineDash([2,6]); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke(); ctx.setLineDash([]);});
-        // علامات سريعة للسويبس
-        ctx.fillStyle='#ef4444';
-        sw.sells.forEach(s=>{const px=x.getPixelForValue(s.i), py=y.getPixelForValue(s.level); ctx.beginPath(); ctx.arc(px,py,3,0,2*Math.PI); ctx.fill();});
-        ctx.fillStyle='#10b981';
-        sw.buys.forEach(s=>{const px=x.getPixelForValue(s.i), py=y.getPixelForValue(s.level); ctx.beginPath(); ctx.arc(px,py,3,0,2*Math.PI); ctx.fill();});
+        ctx.strokeStyle='#60a5fa'; sw.eqh.forEach(l=>{const yy=y.getPixelForValue(l.level); ctx.setLineDash([2,6]); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke(); ctx.setLineDash([]);});
+        ctx.strokeStyle='#34d399'; sw.eql.forEach(l=>{const yy=y.getPixelForValue(l.level); ctx.setLineDash([2,6]); ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke(); ctx.setLineDash([]);});
+        ctx.fillStyle='#ef4444'; sw.sells.forEach(s=>{const px=x.getPixelForValue(s.i), py=y.getPixelForValue(s.level); ctx.beginPath(); ctx.arc(px,py,3,0,2*Math.PI); ctx.fill();});
+        ctx.fillStyle='#10b981'; sw.buys.forEach(s=>{const px=x.getPixelForValue(s.i), py=y.getPixelForValue(s.level); ctx.beginPath(); ctx.arc(px,py,3,0,2*Math.PI); ctx.fill();});
       }
-
-      // BOS / CHoCH
+      // BOS/CHoCH
       if(st.showBOS){
-        ctx.fillStyle='rgba(250,204,21,.9)';
-        opts.struct.bos.forEach(b=>{const px=x.getPixelForValue(b.i), py= b.dir==='up'? top+14 : bottom-14; ctx.beginPath(); ctx.arc(px,py,4,0,2*Math.PI); ctx.fill();});
-        ctx.fillStyle='rgba(99,102,241,.9)';
-        opts.struct.choch.forEach(c=>{const px=x.getPixelForValue(c.i), py= c.dir==='up'? top+28 : bottom-28; ctx.beginPath(); ctx.arc(px,py,4,0,2*Math.PI); ctx.fill();});
+        ctx.fillStyle='rgba(250,204,21,.9)'; struct.bos.forEach(b=>{const px=x.getPixelForValue(b.i), py= b.dir==='up'? top+14 : bottom-14; ctx.beginPath(); ctx.arc(px,py,4,0,2*Math.PI); ctx.fill();});
+        ctx.fillStyle='rgba(99,102,241,.9)';  struct.choch.forEach(c=>{const px=x.getPixelForValue(c.i), py= c.dir==='up'? top+28 : bottom-28; ctx.beginPath(); ctx.arc(px,py,4,0,2*Math.PI); ctx.fill();});
       }
-
       ctx.restore();
     }
   }
 }
 
-let opts={struct:{bos:[],choch:[]}};
+/* ------------------ العرض ------------------ */
+let structCache={bos:[],choch:[]};
+
 async function render(interval=5){
   document.getElementById('status').textContent='تحميل…';
   const bars = await loadCSV('xauusd', interval);
   document.getElementById('status').textContent='آخر تحديث: '+new Date().toLocaleTimeString();
 
-  const vw=vwap(bars), fg=fvg(bars), ob=orderBlocks(bars), sw=sweeps(bars), st=state;
-  opts.struct = structure(bars);
-  const out=decide(bars,vw,fg,ob,sw);
+  const vw=vwap(bars), fg=fvg(bars), ob=orderBlocks(bars), sw=sweeps(bars);
+  structCache = structure(bars);
+  const out=decideStable(bars,vw,fg,ob,sw);
 
-  document.getElementById('signal').textContent=out.sig;
-  document.getElementById('signal').className='pill '+out.cls;
+  // وضع أوفلاين يجمّد الإشارة
+  const sigEl=document.getElementById('signal');
+  document.getElementById('mode').textContent = isOffline ? 'Offline (الإشارة مجمّدة)' : 'Online';
+  document.getElementById('mode').className = isOffline ? 'warn' : '';
+  if(isOffline){
+    sigEl.textContent = lastSignal ?? 'حياد';
+    sigEl.className = 'pill ' + (lastClass ?? 'warn');
+  }else{
+    lastSignal = out.sig; lastClass = out.cls;
+    sigEl.textContent = out.sig; sigEl.className = 'pill '+out.cls;
+  }
+
+  // لوحة
   document.getElementById('heat').innerHTML=`<span class="${out.cls}">${out.heat}</span>`;
   document.getElementById('trend').textContent=out.trend;
   document.getElementById('bias').textContent=out.bias;
   const ul=document.getElementById('notes'); ul.innerHTML=''; out.notes.forEach(n=>{const li=document.createElement('li'); li.textContent=n; ul.appendChild(li);});
 
+  // بيانات رسم
   const labels=bars.map(b=> new Intl.DateTimeFormat('ar-IQ',{hour:'2-digit',minute:'2-digit'}).format(b.t));
   const close=bars.map(b=>b.c);
 
   const ctx=document.getElementById('chart').getContext('2d');
   if(chart) chart.destroy();
   chart=new Chart(ctx,{type:'line',
-    data:{labels,datasets:[
-      {label:'الإغلاق',data:close,borderWidth:2,pointRadius:0,tension:.25}
-    ]},
+    data:{labels,datasets:[{label:'الإغلاق',data:close,borderWidth:2,pointRadius:0,tension:.25}]},
     options:{responsive:true,animation:false,plugins:{legend:{labels:{color:'#e5e7eb'}}},
       scales:{x:{ticks:{color:'#94a3b8'},grid:{color:'#1f2a44'}},
               y:{ticks:{color:'#94a3b8'},grid:{color:'#1f2a44'}}}},
-    plugins:[ pluginOverlays(bars,vw,fg,ob,sw,st) ]
+    plugins:[ pluginOverlays(bars,vw,fg,ob,sw,state,structCache) ]
   });
 }
 
-document.getElementById('refresh').addEventListener('click',()=>render(Number(document.getElementById('tf').value)));
-document.getElementById('tf').addEventListener('change',e=>{document.getElementById('tfLbl').textContent=e.target.value+'m'; render(Number(e.target.value));});
-
-// toggles
+/* ------------------ الأحداث ------------------ */
+function debounceRefresh(){
+  const now = Date.now();
+  if(now - lastUpdate < 15000){ // 15 ثانية
+    const left = Math.ceil((15000 - (now-lastUpdate))/1000);
+    document.getElementById('status').textContent = 'انتظر '+left+'ث ثم حاول التحديث';
+    return;
+  }
+  lastUpdate = now;
+  render(Number(document.getElementById('tf').value));
+}
+document.getElementById('refresh').addEventListener('click',debounceRefresh);
+document.getElementById('tf').addEventListener('change',e=>{
+  document.getElementById('tfLbl').textContent=e.target.value+'m';
+  render(Number(e.target.value));
+});
 ['vw','fvg','ob','liq','bos','pd','sess'].forEach(id=>{
-  document.getElementById(id).addEventListener('change',e=>{state[
-    id==='vw'?'showVWAP': id==='fvg'?'showFVG': id==='ob'?'showOB': id==='liq'?'showLiq': id==='bos'?'showBOS': id==='pd'?'showPD':'showSess'
-  ] = e.target.checked; render(Number(document.getElementById('tf').value));});
+  document.getElementById(id).addEventListener('change',e=>{
+    state[
+      id==='vw'?'showVWAP': id==='fvg'?'showFVG': id==='ob'?'showOB': id==='liq'?'showLiq': id==='bos'?'showBOS': id==='pd'?'showPD':'showSess'
+    ] = e.target.checked;
+    render(Number(document.getElementById('tf').value));
+  });
 });
 
+/* أول تشغيل */
 render(5);
 </script>
 </body>
