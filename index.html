@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gold Sniper — Dual (BTC Live + XAU Approx) • Footprint + Heatmap + 9 Signals</title>
+<title>Gold Sniper — Dual (BTC Live + XAU Approx) • Footprint + Heatmap • 9 Signals (Stabilized)</title>
 <meta name="theme-color" content="#0b1020">
 <style>
 :root{--bg:#050816;--ink:#e5e7eb;--muted:#9aa6bb;--line:#1f2a44;--buy:#10b981;--sell:#ef4444;--heat:#f59e0b}
@@ -23,11 +23,13 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
 .pill{border:1px solid var(--line);background:#0c132a;color:#cbd5e1;padding:6px 10px;border-radius:999px;font-weight:700}
 .ok{color:#10b981}.err{color:#ef4444}.warn{color:#f59e0b}
 ul{margin:6px 0 0; padding-inline-start:18px; line-height:1.8}
+.hr{height:1px;background:var(--line);margin:10px 0}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Gold Sniper — BTC (Live) + XAU (Approx) • Footprint & Heatmap • 9-Indicator Signal</h1>
+  <h1>Gold Sniper — BTC (Live) + XAU (Approx) • Footprint & Heatmap • 9-Indicator Signal (Stabilized)</h1>
+
   <div class="toolbar">
     <label>الأصل:
       <select id="asset">
@@ -61,7 +63,7 @@ ul{margin:6px 0 0; padding-inline-start:18px; line-height:1.8}
         <canvas id="axis"></canvas>
       </div>
       <div class="legend">
-        <span class="badge">Footprint: أحجام <b style="color:var(--buy)">Bid</b> (يسار) / <b style="color:var(--sell)">Ask</b> (يمين) لكل مستوى</span>
+        <span class="badge">Footprint: أحجام <b style="color:var(--buy)">Bid</b> / <b style="color:var(--sell)">Ask</b></span>
       </div>
     </div>
 
@@ -70,9 +72,10 @@ ul{margin:6px 0 0; padding-inline-start:18px; line-height:1.8}
         <canvas id="hm"></canvas>
       </div>
       <div class="legend">
-        <span class="badge">Heatmap: سيولة دفتر الأوامر (BTC) أو مستويات سيولة تقديرية (XAU)</span>
+        <span class="badge">Heatmap: سيولة دفتر الأوامر (BTC) أو مستويات تقديرية (XAU)</span>
       </div>
-      <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div class="hr"></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span id="signal" class="pill">—</span>
         <small id="explain">—</small>
       </div>
@@ -82,70 +85,60 @@ ul{margin:6px 0 0; padding-inline-start:18px; line-height:1.8}
 </div>
 
 <script>
-/* ========= عام ========= */
-const UI = {
-  fp: document.getElementById('fp'),
-  ax: document.getElementById('axis'),
-  hm: document.getElementById('hm'),
-  status: document.getElementById('status'),
-  signal: document.getElementById('signal'),
-  explain: document.getElementById('explain'),
-  notes: document.getElementById('notes')
-};
+/* ====== Helpers ====== */
+const UI={fp:fp,ax:axis,hm:hm,status:status,signal:signal,explain:explain,notes:notes};
 function resize(){ [UI.fp,UI.ax,UI.hm].forEach(c=>{const r=c.getBoundingClientRect(); c.width=r.width*devicePixelRatio; c.height=r.height*devicePixelRatio;}); }
-addEventListener('resize', resize); resize();
-function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
-function priceToY(price, lo, hi, H){ return (H-10) - (price-lo)/(hi-lo+1e-9)*(H-20); }
-function fmt(n, d=2){ return Number(n).toLocaleString('en-US',{maximumFractionDigits:d}); }
+addEventListener('resize',resize); resize();
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const priceToY=(p,lo,hi,H)=> (H-10)-((p-lo)/(hi-lo+1e-9))*(H-20);
+const fmt=(n,d=2)=>Number(n).toLocaleString('en-US',{maximumFractionDigits:d});
 
-/* ========= وضع BTC (حقيقي) ========= */
-const S = { bucketMs:2000, priceTick:5, maxBars:150, heatDecay:0.92 };
-let ws=null, wsDepth=null, live=true;
-let bars=[], lastBucketStart=0, currentBar=null, bestBid=0, bestAsk=0;
-let heatLevels = new Map(); // price -> intensity
+/* ====== Settings / State ====== */
+const S={bucketMs:2000,priceTick:5,maxBars:150,heatDecay:0.92};
+let ws=null,wsDepth=null;
+let bars=[],lastBucket=0,cur=null,bestBid=0,bestAsk=0;
+let heat=new Map();
+let lastSignalTime=0;     // لمنع تبديل إشارة عكسيّة خلال 60s
+const SIG_COOLDOWN=60*1000;
+const voteWin=[];         // نافذة تصويت آخر 3 إشارات
+const VOTE_SIZE=3;
 
-function newBar(ts){ return {t:ts, start:ts, end:ts+S.bucketMs, grid:new Map(), priceMin:Infinity, priceMax:-Infinity, delta:0, buy:0, sell:0}; }
-function addTrade(bar, price, qty, isAggBuy){
-  const p = Math.round(price*S.priceTick)/S.priceTick;
-  const cell = bar.grid.get(p) || {bid:0, ask:0};
-  if(isAggBuy){ cell.ask+=qty; bar.delta += qty; bar.buy+=qty; } else { cell.bid+=qty; bar.delta -= qty; bar.sell+=qty; }
-  bar.grid.set(p, cell);
-  bar.priceMin = Math.min(bar.priceMin, p);
-  bar.priceMax = Math.max(bar.priceMax, p);
+/* ====== Bars / Trades (BTC) ====== */
+const newBar=(t)=>({t,start:t,end:t+S.bucketMs,grid:new Map(),priceMin:Infinity,priceMax:-Infinity,delta:0,buy:0,sell:0});
+function addTrade(bar,price,qty,isBuy){
+  const p=Math.round(price*S.priceTick)/S.priceTick;
+  const cell=bar.grid.get(p)||{bid:0,ask:0};
+  if(isBuy){cell.ask+=qty;bar.delta+=qty;bar.buy+=qty}else{cell.bid+=qty;bar.delta-=qty;bar.sell+=qty}
+  bar.grid.set(p,cell);
+  bar.priceMin=Math.min(bar.priceMin,p); bar.priceMax=Math.max(bar.priceMax,p);
 }
+
+/* ====== Connect BTC ====== */
 function connectBTC(){
-  disconnectAll();
-  bars=[]; heatLevels.clear(); lastBucketStart=0; currentBar=null;
+  disconnectAll(); bars=[]; heat.clear(); lastBucket=0; cur=null; voteWin.length=0;
   const base='wss://stream.binance.com:9443/stream';
-  const streams='btcusdt@trade';
-  const depth='btcusdt@depth20@100ms';
-  ws=new WebSocket(`${base}?streams=${streams}`);
-  wsDepth=new WebSocket(`${base}?streams=${depth}`);
-  live=true; UI.status.textContent='يتصل…';
+  ws=new WebSocket(`${base}?streams=btcusdt@trade`);
+  wsDepth=new WebSocket(`${base}?streams=btcusdt@depth20@100ms`);
+  UI.status.textContent='يتصل…';
   ws.onopen=()=>UI.status.textContent='متصل (تداول)';
   wsDepth.onopen=()=>UI.status.textContent+=' + عمق';
 
-  ws.onmessage=(ev)=>{
-    const {data}=JSON.parse(ev.data);
-    if(!data) return;
-    const price=+data.p, qty=+data.q, ts=data.T, isAggBuy=(data.m===false);
-    if(!currentBar){ lastBucketStart=Math.floor(ts/S.bucketMs)*S.bucketMs; currentBar=newBar(lastBucketStart); }
-    if(ts>=lastBucketStart+S.bucketMs){
-      bars.push(currentBar); if(bars.length>S.maxBars) bars.shift();
-      lastBucketStart=Math.floor(ts/S.bucketMs)*S.bucketMs; currentBar=newBar(lastBucketStart);
-    }
-    addTrade(currentBar, price, qty, isAggBuy);
-    drawFP(); calcSignalBTC(); // نحدّث الإشارة الحية
+  ws.onmessage=(e)=>{
+    const {data}=JSON.parse(e.data)||{}; if(!data) return;
+    const price=+data.p, qty=+data.q, ts=data.T, isBuy=(data.m===false);
+    if(!cur){ lastBucket=Math.floor(ts/S.bucketMs)*S.bucketMs; cur=newBar(lastBucket); }
+    if(ts>=lastBucket+S.bucketMs){ bars.push(cur); if(bars.length>S.maxBars) bars.shift(); lastBucket=Math.floor(ts/S.bucketMs)*S.bucketMs; cur=newBar(lastBucket); }
+    addTrade(cur,price,qty,isBuy);
+    drawFP(); calcSignal('btc'); // حيّاً
   };
-  wsDepth.onmessage=(ev)=>{
-    const {data}=JSON.parse(ev.data); if(!data) return;
+  wsDepth.onmessage=(e)=>{
+    const {data}=JSON.parse(e.data)||{}; if(!data) return;
     const bids=data.bids.map(x=>[+x[0],+x[1]]), asks=data.asks.map(x=>[+x[0],+x[1]]);
     if(bids.length&&asks.length){ bestBid=bids[0][0]; bestAsk=asks[0][0]; }
-    // حرارة السيولة
     for(const [pr,qt] of bids.concat(asks)){
-      const key = Math.round(pr*S.priceTick)/S.priceTick;
-      const prev = heatLevels.get(key)||0;
-      heatLevels.set(key, clamp(prev*S.heatDecay + Math.log(1+qt), 0, 100));
+      const k=Math.round(pr*S.priceTick)/S.priceTick;
+      const prev=heat.get(k)||0;
+      heat.set(k,clamp(prev*S.heatDecay+Math.log(1+qt),0,100));
     }
     drawHM_BTC();
   };
@@ -154,7 +147,7 @@ function connectBTC(){
 }
 function disconnectAll(){ try{ws?.close()}catch{} try{wsDepth?.close()}catch{} UI.status.textContent='غير متصل'; }
 
-/* ========= وضع XAU (تقريبي) ========= */
+/* ====== XAU Approx ====== */
 async function loadXAU(tf=5){
   const url=`https://stooq.com/q/d/l/?s=xauusd&i=${tf}`;
   const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw 0;
@@ -162,228 +155,214 @@ async function loadXAU(tf=5){
   const out=[]; for(let i=1;i<rows.length;i++){ const [d,t,o,h,l,c,v]=rows[i].split(','); out.push({t:new Date(d+'T'+(t||'00:00')+':00Z'),o:+o,h:+h,l:+l,c:+c,v:+(v||1)}); }
   return out;
 }
-function footprintApprox(bars){
-  return bars.map(b=>{
-    const grid=new Map(); const ticks=60; const up=b.c>=b.o;
+function footprintApprox(b){
+  return b.map(x=>{
+    const grid=new Map(); const ticks=60; const up=x.c>=x.o;
     for(let i=0;i<ticks;i++){
-      const r=i/(ticks-1); const price=b.l + r*(b.h-b.l);
+      const r=i/(ticks-1); const price=x.l+r*(x.h-x.l);
       const p=Math.round(price*S.priceTick)/S.priceTick;
-      const bias = up?0.6:0.4;
+      const bias=up?0.6:0.4;
       const ask=Math.random()*bias, bid=Math.random()*(1-bias);
-      const cell=grid.get(p)||{bid:0,ask:0};
-      cell.ask+=ask; cell.bid+=bid; grid.set(p,cell);
+      const cell=grid.get(p)||{bid:0,ask:0}; cell.ask+=ask; cell.bid+=bid; grid.set(p,cell);
     }
-    const delta = Array.from(grid.values()).reduce((a,c)=>a+(c.ask-c.bid),0);
-    const buy = Array.from(grid.values()).reduce((a,c)=>a+c.ask,0);
-    const sell= Array.from(grid.values()).reduce((a,c)=>a+c.bid,0);
-    return {t:b.t, grid, priceMin:b.l, priceMax:b.h, delta, buy, sell, o:b.o, h:b.h, l:b.l, c:b.c};
+    const delta=[...grid.values()].reduce((a,c)=>a+(c.ask-c.bid),0);
+    const buy=[...grid.values()].reduce((a,c)=>a+c.ask,0);
+    const sell=[...grid.values()].reduce((a,c)=>a+c.bid,0);
+    return {t:x.t,grid,priceMin:x.l,priceMax:x.h,delta,buy,sell,o:x.o,h:x.h,l:x.l,c:x.c};
   });
 }
 function levelsApprox(b){
   const lv=new Map(), add=(p,w)=>lv.set(p,(lv.get(p)||0)+w);
   for(let i=2;i<b.length-2;i++){ if(b[i].h>b[i-1].h&&b[i].h>b[i+1].h) add(b[i].h,2.5); if(b[i].l<b[i-1].l&&b[i].l<b[i+1].l) add(b[i].l,2.5); }
   for(let i=2;i<b.length;i++){ const a=b[i-2], c=b[i]; if(a.h<c.l){add(a.h,1.5);add(c.l,1.5)} if(a.l>c.h){add(a.l,1.5);add(c.h,1.5)} }
-  for(let i=3;i<b.length;i++){ const w=b.slice(Math.max(0,i-20),i); const R=Math.max(...w.map(z=>z.h))-Math.min(...w.map(z=>z.l))||1; const body=Math.abs(b[i].c-b[i].o);
-    if(body>0.5*R){ add( (b[i].c>b[i].o)?Math.min(b[i].o,b[i].c):Math.max(b[i].o,b[i].c), 3 ); } }
+  for(let i=3;i<b.length;i++){ const w=b.slice(Math.max(0,i-20),i); const R=Math.max(...w.map(z=>z.h))-Math.min(...w.map(z=>z.l))||1; const body=Math.abs(b[i].c-b[i].o); if(body>0.5*R){ add((b[i].c>b[i].o)?Math.min(b[i].o,b[i].c):Math.max(b[i].o,b[i].c),3);} }
   return lv;
 }
 
-/* ========= الرسم ========= */
+/* ====== Draw ====== */
 function drawFP(){
   const ctx=UI.fp.getContext('2d'), ax=UI.ax.getContext('2d');
-  const W=UI.fp.width, H=UI.fp.height; ctx.clearRect(0,0,W,H); ax.clearRect(0,0,UI.ax.width,UI.ax.height);
-  const data = (bars.length?bars:[]).slice(-S.maxBars);
-  if(data.length===0) return;
-  let lo=Infinity, hi=-Infinity;
-  for(const b of data){ lo=Math.min(lo,b.priceMin); hi=Math.max(hi,b.priceMax); }
-  if(!isFinite(lo)||!isFinite(hi)){ lo = (bestBid||1)*0.999; hi=(bestAsk||1)*1.001; }
-  const colW = W/Math.max(1,data.length);
+  const W=UI.fp.width,H=UI.fp.height; ctx.clearRect(0,0,W,H); ax.clearRect(0,0,UI.ax.width,UI.ax.height);
+  const data=(bars.length?bars:[]).slice(-S.maxBars); if(!data.length) return;
+  let lo=Infinity,hi=-Infinity; for(const b of data){ lo=Math.min(lo,b.priceMin); hi=Math.max(hi,b.priceMax); }
+  if(!isFinite(lo)||!isFinite(hi)){ lo=(bestBid||1)*0.999; hi=(bestAsk||1)*1.001; }
+  const colW=W/Math.max(1,data.length);
   data.forEach((bar,i)=>{
     const x0=i*colW;
-    for(const [p,cell] of bar.grid){
-      const y=priceToY(p,lo,hi,H), tot=(cell.bid+cell.ask)||0;
-      if(!tot) continue;
-      const bidW=(cell.bid/tot)*(colW-6), askW=(cell.ask/tot)*(colW-6);
-      ctx.fillStyle='var(--buy)'; ctx.fillRect(x0+3, y-5, bidW, 10);
-      ctx.fillStyle='var(--sell)'; ctx.fillRect(x0+3+bidW, y-5, askW, 10);
+    for(const [p,c] of bar.grid){
+      const y=priceToY(p,lo,hi,H), tot=(c.bid+c.ask)||0; if(!tot) continue;
+      const bw=(c.bid/tot)*(colW-6), aw=(c.ask/tot)*(colW-6);
+      ctx.fillStyle='var(--buy)'; ctx.fillRect(x0+3,y-5,bw,10);
+      ctx.fillStyle='var(--sell)'; ctx.fillRect(x0+3+bw,y-5,aw,10);
     }
   });
   ax.fillStyle='#94a3b8'; ax.font=(12*devicePixelRatio)+'px system-ui'; ax.textAlign='right';
   for(let k=0;k<=6;k++){ const p=lo+(k/6)*(hi-lo), y=priceToY(p,lo,hi,UI.ax.height);
-    ax.fillText(fmt(p), UI.ax.width-6, y+4);
+    ax.fillText(fmt(p),UI.ax.width-6,y+4);
     ax.strokeStyle='rgba(255,255,255,.06)'; ax.beginPath(); ax.moveTo(0,y); ax.lineTo(UI.ax.width,y); ax.stroke();
   }
 }
 function drawHM_BTC(){
-  const ctx=UI.hm.getContext('2d'), W=UI.hm.width, H=UI.hm.height; ctx.clearRect(0,0,W,H);
-  if(heatLevels.size===0) return;
-  let lo=Math.min(...heatLevels.keys()), hi=Math.max(...heatLevels.keys());
-  if(bestBid&&bestAsk){ lo=Math.min(lo, bestBid*0.995); hi=Math.max(hi, bestAsk*1.005); }
-  const maxI=Math.max(...heatLevels.values(),1);
-  for(const [p,intensity] of heatLevels){
-    const y=priceToY(p,lo,hi,H), a=clamp(intensity/maxI,0,1), h=10*devicePixelRatio;
-    ctx.fillStyle=`rgba(245,158,11,${0.08 + a*0.35})`;
-    ctx.fillRect(0, y-h/2, W, h);
+  const ctx=UI.hm.getContext('2d'), W=UI.hm.width,H=UI.hm.height; ctx.clearRect(0,0,W,H);
+  if(!heat.size) return;
+  let lo=Math.min(...heat.keys()), hi=Math.max(...heat.keys());
+  if(bestBid&&bestAsk){ lo=Math.min(lo,bestBid*0.995); hi=Math.max(hi,bestAsk*1.005); }
+  const maxI=Math.max(...heat.values(),1);
+  for(const [p,i] of heat){
+    const y=priceToY(p,lo,hi,H), a=clamp(i/maxI,0,1), hh=10*devicePixelRatio;
+    ctx.fillStyle=`rgba(245,158,11,${0.08 + a*0.35})`; ctx.fillRect(0,y-hh/2,W,hh);
   }
 }
-function drawHM_XAU(xauBars){
-  const ctx=UI.hm.getContext('2d'), W=UI.hm.width, H=UI.hm.height; ctx.clearRect(0,0,W,H);
-  if(!xauBars.length) return;
-  const lv=levelsApprox(xauBars);
-  let lo=Math.min(...xauBars.map(z=>z.l)), hi=Math.max(...xauBars.map(z=>z.h));
+function drawHM_XAU(b){
+  const ctx=UI.hm.getContext('2d'), W=UI.hm.width,H=UI.hm.height; ctx.clearRect(0,0,W,H);
+  if(!b.length) return; const lv=levelsApprox(b);
+  let lo=Math.min(...b.map(z=>z.l)), hi=Math.max(...b.map(z=>z.h));
   const maxI=Math.max(...lv.values(),1);
-  for(const [p,intensity] of lv){
-    const y=priceToY(p,lo,hi,H), a=clamp(intensity/maxI,0,1), h=10*devicePixelRatio;
-    ctx.fillStyle=`rgba(245,158,11,${0.08 + a*0.35})`;
-    ctx.fillRect(0, y-h/2, W, h);
+  for(const [p,i] of lv){
+    const y=priceToY(p,lo,hi,H), a=clamp(i/maxI,0,1), hh=10*devicePixelRatio;
+    ctx.fillStyle=`rgba(245,158,11,${0.08 + a*0.35})`; ctx.fillRect(0,y-hh/2,W,hh);
   }
 }
 
-/* ========= 9 مؤشرات للإشارة =========
-1) VWAP Bias (تقريبي: متوسط مرجّح داخليًا لكل بار)
-2) EMA200 اتجاه عام (تقريبي على إغلاق البار)
-3) Delta آخر بار (Footprint)
-4) Delta مُتراكم 5 أشرطة
-5) عدم توازن Footprint (Ask/Bid Imbalance)
-6) قرب السعر من جدار سيولة (Heatmap قوي) — BTC فقط
-7) FVG آخر N — صاعد/هابط
-8) Order Block قريب — شرائي/بيعي
-9) BOS/CHoCH حديث — صاعد/هابط
-*/
-function ema(arr,p){ const k=2/(p+1); const out=[]; let e=arr[0]||0; for(let i=0;i<arr.length;i++){ e = arr[i]*k + e*(1-k); out.push(e);} return out; }
-function vwapSeries(b){ let pv=0,v=0,arr=[]; for(const x of b){ const tp=(x.priceMax&&x.priceMin)? (x.priceMax+x.priceMin)/2 : (x.h+x.l+x.c)/3; const vol=(x.buy||x.sell)?(x.buy+x.sell): (x.v||1); pv+=tp*vol; v+=vol; arr.push(pv/Math.max(v,1e-6)); } return arr; }
-function fvgStruct(b){ const up=[],down=[]; for(let i=2;i<b.length;i++){ const a=b[i-2], c=b[i]; const ah=a.h??a.priceMax, al=a.l??a.priceMin, ch=c.h??c.priceMax, cl=c.l??c.priceMin; if(ah<cl) up.push(i-1); if(al>ch) down.push(i-1);} return {up,down}; }
-function orderBlocksApprox(b){ const bull=[],bear=[]; for(let i=3;i<b.length;i++){ const w=b.slice(Math.max(0,i-20),i); const hi=Math.max(...w.map(z=>z.h??z.priceMax)), lo=Math.min(...w.map(z=>z.l??z.priceMin)); const R=hi-lo||1; const body=Math.abs((b[i].c??(b[i].priceMax+b[i].priceMin)/2) - (b[i].o??(b[i].priceMax+b[i].priceMin)/2)); if(body>0.55*R){ if((b[i].c??0)>(b[i].o??0)) bull.push(i); else bear.push(i);} } return {bull,bear}; }
-function structure(b){ const swingH=[],swingL=[]; for(let i=2;i<b.length-2;i++){ const h=b[i].h??b[i].priceMax,l=b[i].l??b[i].priceMin; if(h>(b[i-1].h??b[i-1].priceMax)&&h>(b[i+1].h??b[i+1].priceMax)) swingH.push({i,level:h}); if(l<(b[i-1].l??b[i-1].priceMin)&&l<(b[i+1].l??b[i+1].priceMin)) swingL.push({i,level:l}); } let bosUp=false,bosDn=false; for(let i=1;i<swingH.length;i++){ if(swingH[i].level>Math.max(...swingH.slice(0,i).map(x=>x.level))) bosUp=true; } for(let i=1;i<swingL.length;i++){ if(swingL[i].level<Math.min(...swingL.slice(0,i).map(x=>x.level))) bosDn=true; } return {bosUp,bosDn}; }
+/* ====== Indicators & Signal ====== */
+const ema=(arr,p)=>{const k=2/(p+1); const out=[]; let e=arr[0]||0; for(let i=0;i<arr.length;i++){ e=arr[i]*k+e*(1-k); out.push(e);} return out; }
+function vwapSeries(B){ let pv=0,v=0,arr=[]; for(const x of B){ const tp=(x.priceMax&&x.priceMin)?(x.priceMax+x.priceMin)/2:(x.h+x.l+x.c)/3; const vol=(x.buy||x.sell)?(x.buy+x.sell):(x.v||1); pv+=tp*vol; v+=vol; arr.push(pv/Math.max(v,1e-6)); } return arr; }
+function fvgStruct(B){ const up=[],down=[]; for(let i=2;i<B.length;i++){ const a=B[i-2],c=B[i]; const ah=a.h??a.priceMax, al=a.l??a.priceMin, ch=c.h??c.priceMax, cl=c.l??c.priceMin; if(ah<cl) up.push(i-1); if(al>ch) down.push(i-1);} return {up,down}; }
+function orderBlocksApprox(B){ const bull=[],bear=[]; for(let i=3;i<B.length;i++){ const w=B.slice(Math.max(0,i-20),i); const hi=Math.max(...w.map(z=>z.h??z.priceMax)), lo=Math.min(...w.map(z=>z.l??z.priceMin)); const R=hi-lo||1; const body=Math.abs((B[i].c??(B[i].priceMax+B[i].priceMin)/2)-(B[i].o??(B[i].priceMax+B[i].priceMin)/2)); if(body>0.55*R){ if((B[i].c??0)>(B[i].o??0)) bull.push(i); else bear.push(i);} } return {bull,bear}; }
+function structure(B){ const sh=[],sl=[]; for(let i=2;i<B.length-2;i++){ const h=B[i].h??B[i].priceMax,l=B[i].l??B[i].priceMin; if(h>(B[i-1].h??B[i-1].priceMax)&&h>(B[i+1].h??B[i+1].priceMax)) sh.push({i,level:h}); if(l<(B[i-1].l??B[i-1].priceMin)&&l<(B[i+1].l??B[i+1].priceMin)) sl.push({i,level:l}); }
+  let up=false,dn=false; for(let i=1;i<sh.length;i++){ if(sh[i].level>Math.max(...sh.slice(0,i).map(x=>x.level))) up=true; }
+  for(let i=1;i<sl.length;i++){ if(sl[i].level<Math.min(...sl.slice(0,i).map(x=>x.level))) dn=true; } return {bosUp:up,bosDn:dn}; }
 
-function scoreSignal(data, mode){
-  // data = {bars:[], heat:Map, bestBid, bestAsk} (BTC) أو {xauBars:[], frames:[]}
-  let B = data.bars || data.frames || [];
-  if(B.length<30) return {text:'—', cls:'warn', notes:['بيانات قليلة']};
+function scorePack(data,mode){
+  let B=data.bars||data.frames||[]; if(B.length<30) return {score:0,notes:['بيانات قليلة']};
+  const closes=B.map(b=>b.c ?? ((b.priceMax+b.priceMin)/2));
+  const vw=vwapSeries(B), e200=ema(closes,200), n=B.length-1, price=closes[n];
+  let score=0,notes=[];
 
-  // سلسلة السعر التقريبية
-  const closes = B.map(b=> b.c ?? ((b.priceMax+b.priceMin)/2));
-  // vwap
-  const vw = vwapSeries(B);
-  // ema200
-  const e200 = ema(closes, 200);
-  const n=B.length-1, price=closes[n];
+  // Filters first (trend)
+  const upTrend=price>e200[n] && price>vw[n];
+  const dnTrend=price<e200[n] && price<vw[n];
 
-  let score=0, notes=[];
-
-  // 1) VWAP Bias
-  if(price>vw[n]){ score++; notes.push('فوق VWAP'); } else { score--; notes.push('تحت VWAP'); }
-
-  // 2) EMA200 Trend
-  if(price>e200[n]){ score++; notes.push('فوق EMA200'); } else { score--; notes.push('تحت EMA200'); }
-
-  // 3) Delta آخر بار
-  const dNow = B[n].delta ?? (B[n].buy - B[n].sell);
-  if(dNow>0){ score++; notes.push('دلتا موجب'); } else { score--; notes.push('دلتا سالب'); }
-
-  // 4) Delta 5 Bars
-  let d5=0; for(let i=Math.max(0,n-4); i<=n; i++){ d5 += (B[i].delta ?? (B[i].buy - B[i].sell)); }
-  if(d5>0){ score++; notes.push('دلتا 5↑'); } else { score--; notes.push('دلتا 5↓'); }
-
-  // 5) Imbalance (Ask/Bid)
-  const cellSum = Array.from((B[n].grid||new Map()).values()).reduce((a,c)=>a+(c.ask+c.bid),0);
-  const askSum = Array.from((B[n].grid||new Map()).values()).reduce((a,c)=>a+c.ask,0);
-  if(cellSum>0){
-    const imb = askSum/cellSum;
-    if(imb>0.58){ score++; notes.push('عدم توازن لصالح Ask'); }
-    else if(imb<0.42){ score--; notes.push('عدم توازن لصالح Bid'); }
+  // 1 VWAP bias
+  if(price>vw[n]){score++; notes.push('فوق VWAP');} else {score--; notes.push('تحت VWAP');}
+  // 2 EMA200
+  if(price>e200[n]){score++; notes.push('فوق EMA200');} else {score--; notes.push('تحت EMA200');}
+  // 3 Delta now
+  const dNow=B[n].delta ?? (B[n].buy-B[n].sell);
+  if(dNow>0){score++; notes.push('دلتا موجب');} else {score--; notes.push('دلتا سالب');}
+  // 4 Delta 5
+  let d5=0; for(let i=Math.max(0,n-4);i<=n;i++) d5+=(B[i].delta ?? (B[i].buy-B[i].sell));
+  if(d5>0){score++; notes.push('دلتا 5↑');} else {score--; notes.push('دلتا 5↓');}
+  // 5 Imbalance
+  const vsum=[...(B[n].grid||new Map()).values()].reduce((a,c)=>a+(c.ask+c.bid),0);
+  const askSum=[...(B[n].grid||new Map()).values()].reduce((a,c)=>a+c.ask,0);
+  if(vsum>0){
+    const imb=askSum/vsum;
+    if(imb>0.6){score++; notes.push('عدم توازن Ask قوي');}
+    else if(imb<0.4){score--; notes.push('عدم توازن Bid قوي');}
     else notes.push('عدم توازن محايد');
-  }else{
-    notes.push('Footprint ضعيف الحجم');
-  }
+  } else notes.push('Footprint ضعيف');
 
-  // 6) Heatmap Wall (BTC فقط): قرب السعر من جدار سيولة شرائي/بيعي قوي
+  // 6 Heat wall (BTC فقط)
   if(mode==='btc' && data.heat && data.heat.size){
-    const near = [...data.heat.entries()].sort((a,b)=>Math.abs(a[0]-price)-Math.abs(b[0]-price))[0];
+    const near=[...data.heat.entries()].sort((a,b)=>Math.abs(a[0]-price)-Math.abs(b[0]-price))[0];
     if(near){
-      const [lvl,inten]=near;
-      if(lvl < price){ score++; notes.push('قرب جدار Bid قوي'); }
-      if(lvl > price){ score--; notes.push('قرب جدار Ask قوي'); }
+      const [lvl]=near; if(lvl<price){score++; notes.push('قرب جدار Bid');}
+      if(lvl>price){score--; notes.push('قرب جدار Ask');}
     }
   }
 
-  // 7) FVG
-  const f = fvgStruct(B); if(f.up.some(i=>i>n-12)){ score++; notes.push('FVG صاعد حديث'); }
-  if(f.down.some(i=>i>n-12)){ score--; notes.push('FVG هابط حديث'); }
+  // 7 FVG
+  const f=fvgStruct(B); if(f.up.some(i=>i>n-12)){score++; notes.push('FVG صاعد');}
+  if(f.down.some(i=>i>n-12)){score--; notes.push('FVG هابط');}
+  // 8 Order Blocks
+  const ob=orderBlocksApprox(B);
+  if(ob.bull.some(i=>Math.abs(n-i)<=6)){score++; notes.push('قرب OB شرائي');}
+  if(ob.bear.some(i=>Math.abs(n-i)<=6)){score--; notes.push('قرب OB بيعي');}
+  // 9 BOS/CHoCH
+  const st=structure(B);
+  if(st.bosUp){score++; notes.push('BOS صاعد');}
+  if(st.bosDn){score--; notes.push('BOS هابط');}
 
-  // 8) Order Block قريب
-  const ob = orderBlocksApprox(B);
-  if(ob.bull.some(i=>Math.abs(n-i)<=6)){ score++; notes.push('قرب OB شرائي'); }
-  if(ob.bear.some(i=>Math.abs(n-i)<=6)){ score--; notes.push('قرب OB بيعي'); }
+  // return plus trend flags
+  return {score,notes,upTrend,dnTrend};
+}
 
-  // 9) BOS/CHoCH
-  const st = structure(B);
-  if(st.bosUp){ score++; notes.push('BOS صاعد'); }
-  if(st.bosDn){ score--; notes.push('BOS هابط'); }
+/* ====== Stable Decision (vote + cooldown + thresholds) ====== */
+function decide(mode, pack){
+  const {score,notes,upTrend,dnTrend}=scorePack(pack,mode);
+  let raw = score>0 ? 'buy' : score<0 ? 'sell' : 'flat';
 
-  // خرْج الإشارة
-  let text='حياد', cls='warn';
+  // strong only with trend + big score
   const abs=Math.abs(score);
-  if(score>=8){ text='شراء قوي جدًا'; cls='ok'; }
-  else if(score<=-8){ text='بيع قوي جدًا'; cls='err'; }
-  else if(score>=6){ text='شراء قوي'; cls='ok'; }
-  else if(score<=-6){ text='بيع قوي'; cls='err'; }
-  else if(score>0){ text='شراء'; cls='ok'; }
-  else if(score<0){ text='بيع'; cls='err'; }
+  let text='حياد', cls='warn';
 
-  return {text, cls, notes};
+  // voting (last 3 raw decisions) to avoid flip-flop
+  voteWin.push(raw); if(voteWin.length>VOTE_SIZE) voteWin.shift();
+  const buyVotes=voteWin.filter(x=>x==='buy').length;
+  const sellVotes=voteWin.filter(x=>x==='sell').length;
+
+  const now=Date.now();
+  const allowFlip = (now-lastSignalTime)>=SIG_COOLDOWN;
+
+  if(buyVotes>=2){
+    if(abs>=8 && upTrend){ text='شراء قوي جدًا'; cls='ok'; }
+    else if(abs>=6 && upTrend){ text='شراء قوي'; cls='ok'; }
+    else if(upTrend){ text='شراء'; cls='ok'; }
+  }else if(sellVotes>=2){
+    if(abs>=8 && dnTrend){ text='بيع قوي جدًا'; cls='err'; }
+    else if(abs>=6 && dnTrend){ text='بيع قوي'; cls='err'; }
+    else if(dnTrend){ text='بيع'; cls='err'; }
+  }
+
+  // cooldown: لا نعكس فورًا
+  const currentClass=UI.signal.className||'';
+  const wasBuy=currentClass.includes('ok');
+  const wasSell=currentClass.includes('err');
+  const goingBuy=cls==='ok';
+  const goingSell=cls==='err';
+  if((wasBuy&&goingSell) || (wasSell&&goingBuy)){
+    if(!allowFlip){ text='حياد'; cls='warn'; }
+    else lastSignalTime=now;
+  } else if((goingBuy||goingSell) && (wasBuy||wasSell)===false){
+    lastSignalTime=now; // أول مرة
+  }
+
+  return {text,cls,notes};
 }
 
-/* ========= حساب الإشارة BTC/XAU ========= */
-function calcSignalBTC(){
-  const pack = { bars: bars.slice(-S.maxBars), heat: heatLevels };
-  const out = scoreSignal(pack, 'btc');
-  UI.signal.textContent = out.text; UI.signal.className='pill '+out.cls;
-  UI.explain.textContent = 'نظام 9 مؤشرات (BTC لايف)';
-  UI.notes.innerHTML = out.notes.map(n=>`<li>${n}</li>`).join('');
+/* ====== Compute BTC/XAU ====== */
+function calcSignal(mode){
+  let pack;
+  if(mode==='btc'){ pack={bars:bars.slice(-S.maxBars),heat}; }
+  else { pack={frames:bars.slice(-S.maxBars)}; } // لإعادة استخدام الرسم في XAU
+
+  const out=decide(mode,pack);
+  UI.signal.textContent=out.text; UI.signal.className='pill '+out.cls;
+  UI.explain.textContent=(mode==='btc'?'نظام 9 مؤشرات (BTC لايف)':'نظام 9 مؤشرات (XAU تقريبي) — مُثبّت');
+  UI.notes.innerHTML=out.notes.map(n=>`<li>${n}</li>`).join('');
 }
+
 async function runXAU(){
   try{
     UI.status.textContent='تحميل XAU…';
-    const tf = 5; // ثابت
-    const xau = await loadXAU(tf);
-    const frames = footprintApprox(xau);
-    // رسم
-    bars = frames; // إعادة استخدام الرسام
-    drawFP();
-    drawHM_XAU(xau);
-    // إشارة
-    const out = scoreSignal({frames}, 'xau');
-    UI.signal.textContent = out.text; UI.signal.className='pill '+out.cls;
-    UI.explain.textContent = 'نظام 9 مؤشرات (XAU تقريبي)';
-    UI.notes.innerHTML = out.notes.map(n=>`<li>${n}</li>`).join('');
+    const tf=5; const x=await loadXAU(tf);
+    const frames=footprintApprox(x); bars=frames;
+    drawFP(); drawHM_XAU(x); calcSignal('xau');
     UI.status.textContent='تم التحديث: '+new Date().toLocaleTimeString();
-  }catch(e){
-    UI.status.textContent='تعذر جلب XAU';
-  }
+  }catch{ UI.status.textContent='تعذر جلب XAU'; }
 }
 
-/* ========= تحكم الواجهة ========= */
-function applySettings(){
-  S.bucketMs = +document.getElementById('bucket').value;
-  S.priceTick = +document.getElementById('tick').value;
-}
-document.getElementById('connect').onclick = ()=>{
-  applySettings();
-  const a = document.getElementById('asset').value;
-  if(a==='btc'){ connectBTC(); }
-  else { disconnectAll(); runXAU(); }
-};
-document.getElementById('disconnect').onclick = ()=>{ disconnectAll(); };
-document.getElementById('asset').onchange = ()=>{
-  const a = document.getElementById('asset').value;
-  if(a==='btc'){ connectBTC(); } else { disconnectAll(); runXAU(); }
-};
-document.getElementById('bucket').onchange = ()=>{ applySettings(); if(document.getElementById('asset').value==='btc') connectBTC(); };
-document.getElementById('tick').onchange = ()=>{ applySettings(); drawFP(); if(document.getElementById('asset').value==='btc') drawHM_BTC(); };
+/* ====== UI Control ====== */
+function apply(){ S.bucketMs=+bucket.value; S.priceTick=+tick.value; }
+connect.onclick=()=>{ apply(); if(asset.value==='btc') connectBTC(); else {disconnectAll(); runXAU();}};
+disconnect.onclick=()=>disconnectAll();
+asset.onchange=()=>{ if(asset.value==='btc') connectBTC(); else {disconnectAll(); runXAU();}};
+bucket.onchange=()=>{ apply(); if(asset.value==='btc') connectBTC(); };
+tick.onchange=()=>{ apply(); drawFP(); if(asset.value==='btc') drawHM_BTC(); };
 
-/* بدء افتراضي على BTC */
-applySettings(); connectBTC();
+/* default */
+apply(); connectBTC();
 </script>
 </body>
 </html>
